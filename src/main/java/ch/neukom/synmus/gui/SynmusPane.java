@@ -6,11 +6,13 @@ import ch.neukom.synmus.data.beans.Artist;
 import ch.neukom.synmus.data.beans.Track;
 import javafx.application.Platform;
 import javafx.beans.property.SimpleBooleanProperty;
+import javafx.beans.value.ChangeListener;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.*;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
@@ -32,62 +34,32 @@ public class SynmusPane extends StackPane implements Observer {
     private Set<Track> tracks;
 
     private SimpleBooleanProperty scanning = new SimpleBooleanProperty(false);
-    private ObservableList<Track> trackData = FXCollections.observableArrayList();
+    private ObservableList<Track> trackData = FXCollections.observableArrayList(param -> new javafx.beans.Observable[]{param.getTaggedForSync()});
     private ObservableList<Artist> artistData = FXCollections.observableArrayList();
     private ObservableList<Album> albumData = FXCollections.observableArrayList();
 
     public SynmusPane(Stage stage) {
-        this.setAlignment(Pos.CENTER);
-        this.setPadding(new Insets(25, 25, 25, 25));
+        setPadding(new Insets(0, 10, 0, 10));
 
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Select music root");
 
+
+        ListView<Artist> artistList = createArtistList(stage);
+        Label artistLabel = new Label("Artists");
+
+        ListView<Album> albumList = createAlbumList(stage);
+        Label albumLabel = new Label("Albums");
+
+        ListView<Track> trackList = createTrackList(stage);
+        Label trackLabel = new Label("Tracks");
+
         Button selectButton = new Button("Select music root");
-        selectButton.setOnAction(event -> selectRoot(stage, chooser));
-        scanning.addListener(event -> selectButton.setDisable(scanning.get()));
-
-        ListView<Artist> artistList = new ListView<>();
-        artistList.setItems(artistData);
-        artistList.setMaxHeight(100);
-        artistList.setCellFactory(params -> new ListCell<Artist>() {
-            @Override
-            protected void updateItem(Artist item, boolean empty) {
-                super.updateItem(item, empty);
-                if(item != null) {
-                    setText(String.format("%s (%s)", item.getName(), item.getTracks().size()));
-                }
-            }
-        });
-        Label artistLabel = new Label("Artists", artistList);
-
-        ListView<Album> albumList = new ListView<>();
-        albumList.setMaxHeight(100);
-        albumList.setItems(albumData);
-        albumList.setCellFactory(params -> new ListCell<Album>() {
-            @Override
-            protected void updateItem(Album item, boolean empty) {
-                super.updateItem(item, empty);
-                if(item != null) {
-                    setText(String.format("%s (%s)", item.getName(), item.getTracks().size()));
-                }
-            }
-        });
-        Label albumLabel = new Label("Albums", albumList);
-
-        ListView<Track> trackList = new ListView<>();
-        trackList.setItems(trackData);
-        trackList.setMaxHeight(100);
-        trackList.setCellFactory(params -> new ListCell<Track>() {
-            @Override
-            protected void updateItem(Track item, boolean empty) {
-                super.updateItem(item, empty);
-                if(item != null) {
-                    setText(item.getHumanReadable());
-                }
-            }
-        });
-        Label trackLabel = new Label("Tracks", trackList);
+        selectButton.setPrefWidth(stage.getWidth() / 3);
+        Button tagButton = new Button("Tag for sync");
+        tagButton.setPrefWidth(stage.getWidth() / 3);
+        Button untagButton = new Button("Untag for sync");
+        untagButton.setPrefWidth(stage.getWidth() / 3);
 
         MultipleSelectionModel<Artist> artistSelection = artistList.getSelectionModel();
         artistSelection.setSelectionMode(SelectionMode.MULTIPLE);
@@ -96,28 +68,84 @@ public class SynmusPane extends StackPane implements Observer {
         MultipleSelectionModel<Track> trackSelection = trackList.getSelectionModel();
         trackSelection.setSelectionMode(SelectionMode.MULTIPLE);
 
-        artistSelection.selectedItemProperty().addListener((observable, oldValue, newValue) -> {
-            trackSelection.clearSelection();
-            artistSelection.getSelectedItems().stream().flatMap(artist -> artist.getTracks().stream()).forEach(trackSelection::select);
-            albumSelection.getSelectedItems().stream().flatMap(album -> album.getTracks().stream()).forEach(trackSelection::select);
-        });
-        albumSelection.selectedItemProperty().addListener((observable, oldValue, newValue) -> {
-            trackSelection.clearSelection();
-            artistSelection.getSelectedItems().stream().flatMap(artist -> artist.getTracks().stream()).forEach(trackSelection::select);
-            albumSelection.getSelectedItems().stream().flatMap(album -> album.getTracks().stream()).forEach(trackSelection::select);
-        });
+        artistSelection.selectedItemProperty().addListener(getSelectionListener(artistSelection, albumSelection, trackSelection));
+        albumSelection.selectedItemProperty().addListener(getSelectionListener(artistSelection, albumSelection, trackSelection));
 
-        VBox box = new VBox(selectButton, artistLabel, artistList, albumLabel, albumList, trackLabel, trackList);
-        box.setAlignment(Pos.CENTER);
-        this.getChildren().add(box);
+        tagButton.setOnAction(event -> trackSelection.getSelectedItems().forEach(track -> track.setTaggedForSync(true)));
+        untagButton.setOnAction(event -> trackSelection.getSelectedItems().forEach(track -> track.setTaggedForSync(false)));
+
+        selectButton.setOnAction(event -> selectRoot(stage, chooser));
+        scanning.addListener(event -> selectButton.setDisable(scanning.get()));
+
+        VBox artist = new VBox(artistLabel, artistList);
+        VBox album = new VBox(albumLabel, albumList);
+        HBox artistAlbum = new HBox(artist, album);
+        VBox track = new VBox(trackLabel, trackList);
+        HBox buttons = new HBox(selectButton, tagButton, untagButton);
+        VBox container = new VBox(artistAlbum, track, buttons);
+
+        artistAlbum.setSpacing(10);
+        container.setSpacing(10);
+
+        this.getChildren().add(container);
     }
 
-    @Override
-    public void update(Observable o, Object arg) {
-        Platform.runLater(() -> {
-            trackData.add((Track) arg);
-            FXCollections.sort(trackData);
+    private ListView<Artist> createArtistList(Stage stage) {
+        ListView<Artist> artistList = new ListView<>();
+        artistList.setItems(artistData);
+        artistList.setPrefWidth(stage.getWidth() / 2);
+        artistList.setCellFactory(params -> new ListCell<Artist>() {
+            @Override
+            protected void updateItem(Artist item, boolean empty) {
+                super.updateItem(item, empty);
+                if(item != null) {
+                    Platform.runLater(() -> setText(String.format("%s (%s)", item.getName(), item.getTracks().size())));
+                }
+            }
         });
+        return artistList;
+    }
+
+    private ListView<Album> createAlbumList(Stage stage) {
+        ListView<Album> albumList = new ListView<>();
+        albumList.setItems(albumData);
+        albumList.setPrefWidth(stage.getWidth() / 2);
+        albumList.setCellFactory(params -> new ListCell<Album>() {
+            @Override
+            protected void updateItem(Album item, boolean empty) {
+                super.updateItem(item, empty);
+                if(item != null) {
+                    Platform.runLater(() -> setText(String.format("%s (%s)", item.getName(), item.getTracks().size())));
+                }
+            }
+        });
+        return albumList;
+    }
+
+    private ListView<Track> createTrackList(Stage stage) {
+        ListView<Track> trackList = new ListView<>();
+        trackList.setItems(trackData);
+        trackList.setPrefWidth(stage.getWidth());
+        trackList.setCellFactory(params -> new ListCell<Track>() {
+            @Override
+            protected void updateItem(Track item, boolean empty) {
+                super.updateItem(item, empty);
+                if(item != null) {
+                    Platform.runLater(() -> setText(item.getHumanReadable()));
+                }
+            }
+        });
+        return trackList;
+    }
+
+    private <T> ChangeListener<T> getSelectionListener(MultipleSelectionModel<Artist> artistSelection,
+                                                       MultipleSelectionModel<Album> albumSelection,
+                                                       MultipleSelectionModel<Track> trackSelection) {
+        return (observable, oldValue, newValue) -> {
+            trackSelection.clearSelection();
+            artistSelection.getSelectedItems().stream().flatMap(artist -> artist.getTracks().stream()).forEach(trackSelection::select);
+            albumSelection.getSelectedItems().stream().flatMap(album -> album.getTracks().stream()).forEach(trackSelection::select);
+        };
     }
 
     private void selectRoot(Stage stage, DirectoryChooser chooser) {
@@ -165,5 +193,13 @@ public class SynmusPane extends StackPane implements Observer {
                 .map(Album::getArtist)
                 .distinct()
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public void update(Observable o, Object arg) {
+        Platform.runLater(() -> {
+            trackData.add((Track) arg);
+            FXCollections.sort(trackData);
+        });
     }
 }

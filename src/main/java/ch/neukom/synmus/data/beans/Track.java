@@ -1,14 +1,18 @@
 package ch.neukom.synmus.data.beans;
 
+import javafx.beans.property.SimpleBooleanProperty;
 import org.jaudiotagger.tag.FieldKey;
 import org.jaudiotagger.tag.Tag;
 
 import java.io.File;
+import java.io.Serializable;
 
-public class Track implements Comparable<Track> {
-    private final Tag tag;
+public class Track implements Comparable<Track>, Serializable {
+    private final transient Tag tag;
     private final File location;
-    private final Album album;
+    private final transient Album album;
+
+    private SimpleBooleanProperty taggedForSync = new SimpleBooleanProperty();
 
     public Track(Tag tag, File location, Album album) {
         this.tag = tag;
@@ -41,11 +45,30 @@ public class Track implements Comparable<Track> {
     }
 
     public String getHumanReadable() {
+        String humanReadable;
         if(tag != null) {
-            return String.format("%s - %s - %s", tag.getFirst(FieldKey.TITLE), tag.getFirst(FieldKey.ALBUM), tag.getFirst(FieldKey.ARTIST));
+            humanReadable = String.format("%s - %s - %s", tag.getFirst(FieldKey.TITLE), tag.getFirst(FieldKey.ALBUM), tag.getFirst(FieldKey.ARTIST));
         } else {
-            return toString();
+            humanReadable = toString();
         }
+
+        if(isTaggedForSync()) {
+            humanReadable = "* ".concat(humanReadable);
+        }
+
+        return humanReadable;
+    }
+
+    public SimpleBooleanProperty getTaggedForSync() {
+        return taggedForSync;
+    }
+
+    public Boolean isTaggedForSync() {
+        return taggedForSync.get();
+    }
+
+    public void setTaggedForSync(Boolean taggedForSync) {
+        this.taggedForSync.set(taggedForSync);
     }
 
     @Override
